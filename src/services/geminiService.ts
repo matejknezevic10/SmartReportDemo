@@ -46,7 +46,6 @@ function formatJSONToMarkdown(json: ReportJSON, input: GenerationInput): string 
   
   markdown += `---\n\n`;
   
-  // Findings
   markdown += `## Befundaufnahme\n\n`;
   for (const finding of json.findings) {
     markdown += `### ${finding.heading}\n\n`;
@@ -55,7 +54,6 @@ function formatJSONToMarkdown(json: ReportJSON, input: GenerationInput): string 
   
   markdown += `---\n\n`;
   
-  // Recommendations
   markdown += `## Empfohlene Maßnahmen\n\n`;
   for (let i = 0; i < json.recommendations.length; i++) {
     markdown += `${i + 1}. ${json.recommendations[i]}\n`;
@@ -64,7 +62,6 @@ function formatJSONToMarkdown(json: ReportJSON, input: GenerationInput): string 
   
   markdown += `---\n\n`;
   
-  // Footer
   markdown += `*Dieser Bericht wurde nach bestem Wissen und Gewissen erstellt. Änderungen und Ergänzungen nach eingehender Prüfung vor Ort vorbehalten.*\n\n`;
   markdown += `*${input.companyName || 'Fachbetrieb'} • ${date}*`;
   
@@ -145,7 +142,6 @@ WICHTIG:
     const response = await result.response;
     let text = response.text().trim();
     
-    // Clean up response - remove markdown code blocks if present
     text = text.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim();
     
     try {
@@ -154,7 +150,6 @@ WICHTIG:
     } catch (parseError) {
       console.error('JSON Parse Error:', parseError);
       console.log('Raw response:', text);
-      // If JSON parsing fails, return the raw text as fallback
       return text || generateFallbackReport(input);
     }
   } catch (error) {
