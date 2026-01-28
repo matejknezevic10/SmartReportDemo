@@ -74,8 +74,8 @@ export async function generateProfessionalReport(input: GenerationInput): Promis
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
-
+    const model = genAI.getGenerativeModel({ model: 'gemini-1.5-pro-latest' });
+    
     const reportTypeContext = getReportTypeContext(input.type);
 
     const prompt = `Du bist ein technischer Sachverständiger und erfahrener Gutachter für Gebäudeschäden, Sanierung und Bautechnik. Du schreibst seit über 20 Jahren professionelle Gutachten und Berichte für Versicherungen, Hausverwaltungen und Privatkunden.
