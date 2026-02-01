@@ -1,4 +1,3 @@
-
 import React, { useState } from 'react';
 import { Report, ReportType, User, ReportImage } from '../types';
 import { Save, ArrowLeft, Copy, Check, FileDown, FileText, Image as ImageIcon, X, Mail, Send, Loader2, CloudUpload, Sparkles, Edit3, Home, CheckCircle, AlertTriangle, MapPin, Activity } from 'lucide-react';
@@ -102,6 +101,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
 
   return (
     <div className="fixed inset-0 bg-white z-50 flex flex-col font-sans">
+      {/* Header */}
       <div className="border-b px-6 py-4 flex items-center justify-between bg-white shadow-sm shrink-0">
         <div className="flex items-center gap-4">
           <button onClick={onBack} className="p-2.5 hover:bg-slate-100 rounded-2xl transition-all text-slate-600"><ArrowLeft size={22} /></button>
@@ -125,19 +125,22 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
         </div>
       </div>
 
-      <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50">
-        <div className="flex-1 flex flex-col p-6 overflow-auto">
+      {/* Main Content Area - Fixed height calculation */}
+      <div className="flex-1 flex flex-col md:flex-row bg-slate-50 overflow-hidden">
+        {/* Report Text Area */}
+        <div className="flex-1 p-6 overflow-hidden flex flex-col">
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
             disabled={isSyncing}
-            className="w-full bg-white rounded-[3rem] shadow-xl p-12 text-slate-700 font-medium text-lg leading-relaxed border border-slate-100 outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all resize-vertical min-h-[600px]"
+            className="flex-1 w-full bg-white rounded-[2rem] shadow-xl p-8 md:p-12 text-slate-700 font-medium text-base md:text-lg leading-relaxed border border-slate-100 outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all resize-none overflow-y-auto"
             placeholder="Berichtsinhalt wird hier angezeigt..."
           />
         </div>
 
+        {/* Images Sidebar */}
         {report.images && report.images.length > 0 && (
-          <div className="w-full md:w-80 bg-white border-l p-8 overflow-y-auto shrink-0">
+          <div className="w-full md:w-80 bg-white border-l p-8 overflow-y-auto shrink-0 max-h-[300px] md:max-h-none">
             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8 flex items-center gap-2">
               <ImageIcon size={16} /> Bildmaterial ({report.images.length})
             </h4>
@@ -155,18 +158,20 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
         )}
       </div>
 
-      <div className="p-8 border-t bg-white flex flex-col sm:flex-row justify-between items-center gap-8 shadow-2xl shrink-0">
+      {/* Footer */}
+      <div className="p-6 md:p-8 border-t bg-white flex flex-col sm:flex-row justify-between items-center gap-4 md:gap-8 shadow-2xl shrink-0">
         <div className="flex items-center gap-3">
-          <button onClick={exportToPDF} disabled={isExporting} className="flex items-center gap-3 px-8 py-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-3xl font-black text-xs uppercase tracking-widest hover:border-indigo-600 transition-all active:scale-95 shadow-sm">
+          <button onClick={exportToPDF} disabled={isExporting} className="flex items-center gap-3 px-6 md:px-8 py-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-3xl font-black text-xs uppercase tracking-widest hover:border-indigo-600 transition-all active:scale-95 shadow-sm">
             <FileDown size={20} className="text-red-500" /> PDF Export
           </button>
         </div>
         
-        <button onClick={() => setShowEmailModal(true)} disabled={!isOnline} className="w-full sm:w-auto flex items-center justify-center gap-3 px-16 py-5 bg-indigo-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">
+        <button onClick={() => setShowEmailModal(true)} disabled={!isOnline} className="w-full sm:w-auto flex items-center justify-center gap-3 px-10 md:px-16 py-5 bg-indigo-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">
           <Mail size={22} /> Versand einleiten
         </button>
       </div>
 
+      {/* Image Editor Modal */}
       {editingImageIndex !== null && report.images && (
         <ImageEditor 
           image={report.images[editingImageIndex]}
@@ -180,6 +185,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
         />
       )}
 
+      {/* Email Modal */}
       {showEmailModal && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in duration-300">
