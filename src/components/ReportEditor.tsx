@@ -126,12 +126,12 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       </div>
 
       <div className="flex-1 flex flex-col md:flex-row overflow-hidden bg-slate-50">
-        <div className="flex-1 flex flex-col p-6 overflow-hidden">
+        <div className="flex-1 flex flex-col p-6 overflow-auto">
           <textarea
             value={content}
             onChange={(e) => setContent(e.target.value)}
             disabled={isSyncing}
-            className="flex-1 bg-white rounded-[3rem] shadow-xl overflow-y-auto p-12 text-slate-700 font-medium text-lg leading-relaxed border border-slate-100 outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all resize-none"
+            className="w-full bg-white rounded-[3rem] shadow-xl p-12 text-slate-700 font-medium text-lg leading-relaxed border border-slate-100 outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all resize-vertical min-h-[600px]"
             placeholder="Berichtsinhalt wird hier angezeigt..."
           />
         </div>
