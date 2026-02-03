@@ -2,7 +2,6 @@ import React, { useState, useMemo, useRef } from 'react';
 import { Report, ReportType, User, ReportImage } from '../types';
 import { ArrowLeft, Copy, Check, FileDown, Image as ImageIcon, Mail, Loader2, Sparkles, Edit3, CheckCircle, Eye, Edit } from 'lucide-react';
 import { jsPDF } from 'jspdf';
-import html2canvas from 'html2canvas';
 import { generateProfessionalReport } from '../services/geminiService';
 import ImageEditor from './ImageEditor';
 
@@ -115,8 +114,6 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
   const [manualEmail, setManualEmail] = useState('');
   const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'preview' | 'edit'>('preview');
-  
-  const reportRef = useRef<HTMLDivElement>(null);
 
   const htmlContent = useMemo(() => markdownToHtml(content), [content]);
 
@@ -157,153 +154,277 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
   };
 
   const exportToPDF = async () => {
-    if (!reportRef.current) return;
-    
     setIsExporting(true);
     
-    // Force preview mode for export
-    const wasEditMode = viewMode === 'edit';
-    if (wasEditMode) setViewMode('preview');
-    
-    // Wait for render
-    await new Promise(resolve => setTimeout(resolve, 200));
-    
     try {
-      // Clone the element to avoid modifying the original
-      const element = reportRef.current;
-      const clone = element.cloneNode(true) as HTMLElement;
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const pageHeight = doc.internal.pageSize.getHeight();
+      const margin = 15;
+      const contentWidth = pageWidth - (margin * 2);
+      let y = 0;
       
-      // Set fixed width for consistent PDF output
-      clone.style.width = '800px';
-      clone.style.position = 'absolute';
-      clone.style.left = '-9999px';
-      clone.style.top = '0';
-      document.body.appendChild(clone);
-      
-      // Wait for images to load
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      const canvas = await html2canvas(clone, {
-        scale: 2,
-        useCORS: true,
-        allowTaint: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-        width: 800,
-        windowWidth: 800,
-        onclone: (clonedDoc) => {
-          // Remove any problematic elements
-          const textareas = clonedDoc.getElementsByTagName('textarea');
-          Array.from(textareas).forEach(ta => {
-            const div = clonedDoc.createElement('div');
-            div.innerHTML = ta.value.replace(/\n/g, '<br>');
-            div.style.cssText = ta.style.cssText;
-            ta.parentNode?.replaceChild(div, ta);
-          });
+      // Helper function to add new page if needed
+      const checkNewPage = (neededSpace: number) => {
+        if (y + neededSpace > pageHeight - 20) {
+          doc.addPage();
+          y = 20;
+          return true;
         }
-      });
+        return false;
+      };
+
+      // === HEADER ===
+      doc.setFillColor(30, 41, 59);
+      doc.rect(0, 0, pageWidth, 45, 'F');
       
-      // Remove clone
-      document.body.removeChild(clone);
+      // Label
+      doc.setTextColor(165, 180, 252);
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.text('TECHNISCHER BERICHT', margin, 12);
       
-      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      // Title
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(16);
+      doc.setFont('helvetica', 'bold');
+      const titleLines = doc.splitTextToSize(report.title.toUpperCase(), contentWidth - 40);
+      doc.text(titleLines, margin, 22);
       
-      // A4 dimensions in mm
-      const pdf = new jsPDF({
-        orientation: 'portrait',
-        unit: 'mm',
-        format: 'a4'
-      });
+      // Date (right aligned)
+      doc.setFontSize(8);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(148, 163, 184);
+      doc.text('Datum', pageWidth - margin - 20, 12);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.text(report.date, pageWidth - margin - 20, 18);
       
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
+      // Customer info line
+      doc.setDrawColor(51, 65, 85);
+      doc.line(margin, 32, pageWidth - margin, 32);
       
-      const imgWidth = canvas.width;
-      const imgHeight = canvas.height;
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Kunde/Objekt', margin, 38);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.text(report.customer, margin + 25, 38);
       
-      // Calculate scaling to fit width
-      const scale = pdfWidth / (imgWidth / 2); // Divide by 2 because of scale: 2
-      const scaledHeight = (imgHeight / 2) * scale;
+      doc.setTextColor(148, 163, 184);
+      doc.setFont('helvetica', 'normal');
+      doc.text('Status', margin + 90, 38);
+      doc.setTextColor(255, 255, 255);
+      doc.setFont('helvetica', 'bold');
+      doc.text(report.status, margin + 105, 38);
       
-      // If content fits on one page
-      if (scaledHeight <= pdfHeight) {
-        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, scaledHeight);
-      } else {
-        // Multi-page handling
-        let remainingHeight = imgHeight;
-        let sourceY = 0;
-        const pageHeightInPx = (pdfHeight / scale) * 2; // Convert to canvas pixels
+      y = 55;
+
+      // === CONTENT ===
+      const lines = content.split('\n');
+      
+      for (const line of lines) {
+        // H1
+        if (line.startsWith('# ')) {
+          checkNewPage(15);
+          const text = line.replace(/^# /, '').replace(/\*\*/g, '');
+          doc.setFontSize(14);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          const wrapped = doc.splitTextToSize(text, contentWidth);
+          doc.text(wrapped, margin, y);
+          y += wrapped.length * 7 + 5;
+          continue;
+        }
         
-        while (remainingHeight > 0) {
-          const sliceHeight = Math.min(pageHeightInPx, remainingHeight);
+        // H2
+        if (line.startsWith('## ')) {
+          checkNewPage(20);
+          y += 8;
+          const text = line.replace(/^## /, '').replace(/\*\*/g, '');
           
-          // Create temporary canvas for this page
-          const pageCanvas = document.createElement('canvas');
-          pageCanvas.width = imgWidth;
-          pageCanvas.height = sliceHeight;
-          const ctx = pageCanvas.getContext('2d');
+          // Indigo underline
+          doc.setFillColor(99, 102, 241);
+          doc.rect(margin, y + 5, contentWidth, 1, 'F');
           
-          if (ctx) {
-            ctx.fillStyle = '#ffffff';
-            ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
-            ctx.drawImage(
-              canvas,
-              0, sourceY, imgWidth, sliceHeight,
-              0, 0, imgWidth, sliceHeight
-            );
-            
-            const pageData = pageCanvas.toDataURL('image/jpeg', 0.95);
-            const pageScaledHeight = (sliceHeight / 2) * scale;
-            
-            if (sourceY > 0) {
-              pdf.addPage();
-            }
-            
-            pdf.addImage(pageData, 'JPEG', 0, 0, pdfWidth, pageScaledHeight);
+          doc.setFontSize(12);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(text.toUpperCase(), margin, y);
+          y += 14;
+          continue;
+        }
+        
+        // H3
+        if (line.startsWith('### ')) {
+          checkNewPage(15);
+          y += 5;
+          const text = line.replace(/^### /, '').replace(/\*\*/g, '');
+          
+          // Small indigo dot
+          doc.setFillColor(99, 102, 241);
+          doc.circle(margin + 2, y - 2, 1.5, 'F');
+          
+          doc.setFontSize(11);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(30, 41, 59);
+          doc.text(text, margin + 7, y);
+          y += 8;
+          continue;
+        }
+        
+        // Horizontal rule
+        if (line.trim() === '---') {
+          checkNewPage(10);
+          y += 5;
+          doc.setDrawColor(226, 232, 240);
+          doc.setLineWidth(0.5);
+          doc.line(margin, y, pageWidth - margin, y);
+          y += 8;
+          continue;
+        }
+        
+        // Numbered list
+        const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
+        if (numberedMatch) {
+          checkNewPage(10);
+          const num = numberedMatch[1];
+          const text = numberedMatch[2].replace(/\*\*/g, '');
+          
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(99, 102, 241);
+          doc.text(num + '.', margin, y);
+          
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(71, 85, 105);
+          const wrapped = doc.splitTextToSize(text, contentWidth - 10);
+          doc.text(wrapped, margin + 8, y);
+          y += wrapped.length * 5 + 3;
+          continue;
+        }
+        
+        // Bullet list
+        if (line.startsWith('- ')) {
+          checkNewPage(10);
+          const text = line.replace(/^- /, '').replace(/\*\*/g, '');
+          
+          doc.setFillColor(99, 102, 241);
+          doc.circle(margin + 2, y - 1.5, 1, 'F');
+          
+          doc.setFontSize(10);
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(71, 85, 105);
+          const wrapped = doc.splitTextToSize(text, contentWidth - 10);
+          doc.text(wrapped, margin + 8, y);
+          y += wrapped.length * 5 + 3;
+          continue;
+        }
+        
+        // Empty line
+        if (line.trim() === '') {
+          y += 3;
+          continue;
+        }
+        
+        // Regular paragraph
+        checkNewPage(10);
+        const text = line.replace(/\*\*/g, '');
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(71, 85, 105);
+        const wrapped = doc.splitTextToSize(text, contentWidth);
+        doc.text(wrapped, margin, y);
+        y += wrapped.length * 5 + 2;
+      }
+      
+      // === IMAGES ===
+      if (report.images && report.images.length > 0) {
+        // New page for images
+        doc.addPage();
+        y = 20;
+        
+        // Section header
+        doc.setFillColor(99, 102, 241);
+        doc.rect(margin, y - 5, 3, 15, 'F');
+        
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.setTextColor(30, 41, 59);
+        doc.text('BILDMATERIAL', margin + 8, y + 5);
+        
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        doc.setTextColor(100, 116, 139);
+        doc.text(`(${report.images.length} Fotos)`, margin + 55, y + 5);
+        
+        y += 20;
+        
+        const imgWidth = 80;
+        const imgHeight = 60;
+        let imgX = margin;
+        
+        for (let i = 0; i < report.images.length; i++) {
+          const img = report.images[i];
+          
+          if (y + imgHeight > pageHeight - 20) {
+            doc.addPage();
+            y = 20;
+            imgX = margin;
           }
           
-          sourceY += sliceHeight;
-          remainingHeight -= sliceHeight;
+          try {
+            // Add image
+            doc.addImage(
+              `data:${img.mimeType};base64,${img.data}`,
+              'JPEG',
+              imgX,
+              y,
+              imgWidth,
+              imgHeight
+            );
+            
+            // Label
+            doc.setFillColor(0, 0, 0);
+            doc.rect(imgX, y + imgHeight - 8, 25, 8, 'F');
+            doc.setFontSize(8);
+            doc.setTextColor(255, 255, 255);
+            doc.text(`Foto ${i + 1}`, imgX + 3, y + imgHeight - 2);
+            
+            // Alternate position
+            if (imgX === margin) {
+              imgX = margin + imgWidth + 10;
+            } else {
+              imgX = margin;
+              y += imgHeight + 10;
+            }
+          } catch (e) {
+            console.error('Image export error:', e);
+          }
         }
       }
       
-      pdf.save(`Bericht_${report.customer.replace(/\s+/g, '_')}_${report.date.replace(/\./g, '-')}.pdf`);
+      // === FOOTER on last page ===
+      const totalPages = doc.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        doc.setPage(i);
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text(
+          `Erstellt mit SmartReport • ${report.date} • Seite ${i} von ${totalPages}`,
+          pageWidth / 2,
+          pageHeight - 10,
+          { align: 'center' }
+        );
+      }
+      
+      doc.save(`Bericht_${report.customer.replace(/\s+/g, '_')}_${report.date.replace(/\./g, '-')}.pdf`);
       
     } catch (error) {
       console.error('PDF Export Error:', error);
-      // Fallback to simple PDF
-      try {
-        const doc = new jsPDF();
-        const margin = 20;
-        const pageWidth = doc.internal.pageSize.getWidth();
-        
-        doc.setFillColor(30, 41, 59);
-        doc.rect(0, 0, pageWidth, 35, 'F');
-        doc.setTextColor(255, 255, 255);
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.text(report.title.toUpperCase(), margin, 18);
-        doc.setFontSize(9);
-        doc.text(`Datum: ${report.date} | Kunde: ${report.customer}`, margin, 28);
-        
-        doc.setTextColor(30, 41, 59);
-        doc.setFontSize(10);
-        doc.setFont('helvetica', 'normal');
-        
-        const cleanContent = content
-          .replace(/^#+\s*/gm, '')
-          .replace(/\*\*/g, '')
-          .replace(/^---$/gm, '');
-        
-        const lines = doc.splitTextToSize(cleanContent, pageWidth - (margin * 2));
-        doc.text(lines, margin, 50);
-        
-        doc.save(`Bericht_${report.customer.replace(/\s+/g, '_')}_${report.date.replace(/\./g, '-')}.pdf`);
-      } catch (fallbackError) {
-        alert('PDF Export fehlgeschlagen. Bitte versuchen Sie es erneut.');
-      }
+      alert('PDF Export fehlgeschlagen. Bitte versuchen Sie es erneut.');
     } finally {
-      if (wasEditMode) setViewMode('edit');
       setIsExporting(false);
     }
   };
@@ -378,7 +499,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       <div className="flex-1 overflow-auto p-4 md:p-6">
         <div className="max-w-4xl mx-auto">
           {/* Report Card */}
-          <div ref={reportRef} className="bg-white rounded-2xl shadow-lg overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
             {/* Report Header */}
             <div style={{ background: 'linear-gradient(to right, #1e293b, #0f172a)' }} className="text-white p-6 md:p-8">
               <div className="flex items-start justify-between">
@@ -434,7 +555,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
                   {report.images.map((img, idx) => (
                     <div 
                       key={idx} 
-                      className="relative rounded-xl overflow-hidden shadow-md cursor-pointer"
+                      className="relative rounded-xl overflow-hidden shadow-md cursor-pointer group"
                       style={{ aspectRatio: '4/3', border: '2px solid white' }}
                       onClick={() => setEditingImageIndex(idx)}
                     >
@@ -443,6 +564,9 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         alt={`Foto ${idx + 1}`} 
                       />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Edit3 size={24} className="text-white" />
+                      </div>
                       <div 
                         style={{ 
                           position: 'absolute', 
