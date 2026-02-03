@@ -28,7 +28,7 @@ function markdownToHtml(markdown: string): string {
       if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
       const text = line.replace(/^### /, '');
       html += `<h3 style="font-size: 18px; font-weight: 700; color: #1e293b; margin-top: 24px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
-        <span style="width: 6px; height: 6px; background: #6366f1; border-radius: 50%;"></span>${text}
+        <span style="width: 6px; height: 6px; background: #6366f1; border-radius: 50%; display: inline-block;"></span>${text}
       </h3>`;
       continue;
     }
@@ -166,25 +166,51 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
     if (wasEditMode) setViewMode('preview');
     
     // Wait for render
-    await new Promise(resolve => setTimeout(resolve, 100));
+    await new Promise(resolve => setTimeout(resolve, 200));
     
     try {
+      // Clone the element to avoid modifying the original
       const element = reportRef.current;
+      const clone = element.cloneNode(true) as HTMLElement;
       
-      // Create canvas from HTML
-      const canvas = await html2canvas(element, {
-        scale: 2, // Higher quality
+      // Set fixed width for consistent PDF output
+      clone.style.width = '800px';
+      clone.style.position = 'absolute';
+      clone.style.left = '-9999px';
+      clone.style.top = '0';
+      document.body.appendChild(clone);
+      
+      // Wait for images to load
+      await new Promise(resolve => setTimeout(resolve, 100));
+      
+      const canvas = await html2canvas(clone, {
+        scale: 2,
         useCORS: true,
         allowTaint: true,
         backgroundColor: '#ffffff',
         logging: false,
+        width: 800,
+        windowWidth: 800,
+        onclone: (clonedDoc) => {
+          // Remove any problematic elements
+          const textareas = clonedDoc.getElementsByTagName('textarea');
+          Array.from(textareas).forEach(ta => {
+            const div = clonedDoc.createElement('div');
+            div.innerHTML = ta.value.replace(/\n/g, '<br>');
+            div.style.cssText = ta.style.cssText;
+            ta.parentNode?.replaceChild(div, ta);
+          });
+        }
       });
       
-      const imgData = canvas.toDataURL('image/png');
+      // Remove clone
+      document.body.removeChild(clone);
       
-      // Calculate PDF dimensions
+      const imgData = canvas.toDataURL('image/jpeg', 0.95);
+      
+      // A4 dimensions in mm
       const pdf = new jsPDF({
-        orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+        orientation: 'portrait',
         unit: 'mm',
         format: 'a4'
       });
@@ -195,39 +221,49 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       const imgWidth = canvas.width;
       const imgHeight = canvas.height;
       
-      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
-      const scaledWidth = imgWidth * ratio;
-      const scaledHeight = imgHeight * ratio;
+      // Calculate scaling to fit width
+      const scale = pdfWidth / (imgWidth / 2); // Divide by 2 because of scale: 2
+      const scaledHeight = (imgHeight / 2) * scale;
       
-      // If content is longer than one page, split it
-      const pageHeightInPixels = (pdfHeight / ratio);
-      const totalPages = Math.ceil(imgHeight / pageHeightInPixels);
-      
-      for (let page = 0; page < totalPages; page++) {
-        if (page > 0) {
-          pdf.addPage();
-        }
+      // If content fits on one page
+      if (scaledHeight <= pdfHeight) {
+        pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, scaledHeight);
+      } else {
+        // Multi-page handling
+        let remainingHeight = imgHeight;
+        let sourceY = 0;
+        const pageHeightInPx = (pdfHeight / scale) * 2; // Convert to canvas pixels
         
-        const sourceY = page * pageHeightInPixels;
-        const sourceHeight = Math.min(pageHeightInPixels, imgHeight - sourceY);
-        
-        // Create a temporary canvas for this page section
-        const pageCanvas = document.createElement('canvas');
-        pageCanvas.width = imgWidth;
-        pageCanvas.height = sourceHeight;
-        const ctx = pageCanvas.getContext('2d');
-        
-        if (ctx) {
-          ctx.drawImage(
-            canvas, 
-            0, sourceY, imgWidth, sourceHeight,
-            0, 0, imgWidth, sourceHeight
-          );
+        while (remainingHeight > 0) {
+          const sliceHeight = Math.min(pageHeightInPx, remainingHeight);
           
-          const pageImgData = pageCanvas.toDataURL('image/png');
-          const pageScaledHeight = sourceHeight * ratio;
+          // Create temporary canvas for this page
+          const pageCanvas = document.createElement('canvas');
+          pageCanvas.width = imgWidth;
+          pageCanvas.height = sliceHeight;
+          const ctx = pageCanvas.getContext('2d');
           
-          pdf.addImage(pageImgData, 'PNG', 0, 0, pdfWidth, pageScaledHeight);
+          if (ctx) {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, pageCanvas.width, pageCanvas.height);
+            ctx.drawImage(
+              canvas,
+              0, sourceY, imgWidth, sliceHeight,
+              0, 0, imgWidth, sliceHeight
+            );
+            
+            const pageData = pageCanvas.toDataURL('image/jpeg', 0.95);
+            const pageScaledHeight = (sliceHeight / 2) * scale;
+            
+            if (sourceY > 0) {
+              pdf.addPage();
+            }
+            
+            pdf.addImage(pageData, 'JPEG', 0, 0, pdfWidth, pageScaledHeight);
+          }
+          
+          sourceY += sliceHeight;
+          remainingHeight -= sliceHeight;
         }
       }
       
@@ -235,7 +271,37 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       
     } catch (error) {
       console.error('PDF Export Error:', error);
-      alert('Fehler beim PDF-Export. Bitte versuchen Sie es erneut.');
+      // Fallback to simple PDF
+      try {
+        const doc = new jsPDF();
+        const margin = 20;
+        const pageWidth = doc.internal.pageSize.getWidth();
+        
+        doc.setFillColor(30, 41, 59);
+        doc.rect(0, 0, pageWidth, 35, 'F');
+        doc.setTextColor(255, 255, 255);
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text(report.title.toUpperCase(), margin, 18);
+        doc.setFontSize(9);
+        doc.text(`Datum: ${report.date} | Kunde: ${report.customer}`, margin, 28);
+        
+        doc.setTextColor(30, 41, 59);
+        doc.setFontSize(10);
+        doc.setFont('helvetica', 'normal');
+        
+        const cleanContent = content
+          .replace(/^#+\s*/gm, '')
+          .replace(/\*\*/g, '')
+          .replace(/^---$/gm, '');
+        
+        const lines = doc.splitTextToSize(cleanContent, pageWidth - (margin * 2));
+        doc.text(lines, margin, 50);
+        
+        doc.save(`Bericht_${report.customer.replace(/\s+/g, '_')}_${report.date.replace(/\./g, '-')}.pdf`);
+      } catch (fallbackError) {
+        alert('PDF Export fehlgeschlagen. Bitte versuchen Sie es erneut.');
+      }
     } finally {
       if (wasEditMode) setViewMode('edit');
       setIsExporting(false);
@@ -311,7 +377,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       {/* Main Content - Scrollable */}
       <div className="flex-1 overflow-auto p-4 md:p-6">
         <div className="max-w-4xl mx-auto">
-          {/* Report Card - This is what gets exported to PDF */}
+          {/* Report Card */}
           <div ref={reportRef} className="bg-white rounded-2xl shadow-lg overflow-hidden">
             {/* Report Header */}
             <div style={{ background: 'linear-gradient(to right, #1e293b, #0f172a)' }} className="text-white p-6 md:p-8">
@@ -358,13 +424,13 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
             {report.images && report.images.length > 0 && (
               <div style={{ borderTop: '2px solid #f1f5f9', background: '#f8fafc' }} className="p-6 md:p-10">
                 <h3 className="text-lg font-bold uppercase tracking-wide mb-6 flex items-center gap-3" style={{ color: '#1e293b' }}>
-                  <div style={{ background: '#e0e7ff', padding: '8px', borderRadius: '8px' }}>
+                  <div style={{ background: '#e0e7ff', padding: '8px', borderRadius: '8px', display: 'inline-flex' }}>
                     <ImageIcon size={20} style={{ color: '#4f46e5' }} />
                   </div>
                   Bildmaterial
                   <span className="text-sm font-normal" style={{ color: '#64748b' }}>({report.images.length} Fotos)</span>
                 </h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px' }}>
                   {report.images.map((img, idx) => (
                     <div 
                       key={idx} 
@@ -374,7 +440,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
                     >
                       <img 
                         src={`data:${img.mimeType};base64,${img.data}`} 
-                        className="w-full h-full object-cover" 
+                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                         alt={`Foto ${idx + 1}`} 
                       />
                       <div 
