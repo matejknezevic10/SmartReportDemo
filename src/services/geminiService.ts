@@ -78,7 +78,6 @@ export async function generateProfessionalReport(input: GenerationInput): Promis
       model: 'gemini-2.0-flash',
       generationConfig: {
         maxOutputTokens: 8192,
-        temperature: 0.2,
       }
     })
     ;
