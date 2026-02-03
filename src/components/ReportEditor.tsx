@@ -1,7 +1,8 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef } from 'react';
 import { Report, ReportType, User, ReportImage } from '../types';
 import { ArrowLeft, Copy, Check, FileDown, Image as ImageIcon, Mail, Loader2, Sparkles, Edit3, CheckCircle, Eye, Edit } from 'lucide-react';
 import { jsPDF } from 'jspdf';
+import html2canvas from 'html2canvas';
 import { generateProfessionalReport } from '../services/geminiService';
 import ImageEditor from './ImageEditor';
 
@@ -15,7 +16,6 @@ interface ReportEditorProps {
 
 // Professional Markdown to HTML converter
 function markdownToHtml(markdown: string): string {
-  // Split into lines for better processing
   const lines = markdown.split('\n');
   let html = '';
   let inList = false;
@@ -24,12 +24,11 @@ function markdownToHtml(markdown: string): string {
   for (let i = 0; i < lines.length; i++) {
     let line = lines[i];
     
-    // Check for headers
     if (line.startsWith('### ')) {
       if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
       const text = line.replace(/^### /, '');
-      html += `<h3 class="text-lg font-bold text-slate-800 mt-8 mb-3 flex items-center gap-2">
-        <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>${text}
+      html += `<h3 style="font-size: 18px; font-weight: 700; color: #1e293b; margin-top: 24px; margin-bottom: 12px; display: flex; align-items: center; gap: 8px;">
+        <span style="width: 6px; height: 6px; background: #6366f1; border-radius: 50%;"></span>${text}
       </h3>`;
       continue;
     }
@@ -37,74 +36,67 @@ function markdownToHtml(markdown: string): string {
     if (line.startsWith('## ')) {
       if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
       const text = line.replace(/^## /, '');
-      html += `<h2 class="text-xl font-black text-slate-900 mt-10 mb-4 pb-3 border-b-2 border-indigo-500 uppercase tracking-wide">${text}</h2>`;
+      html += `<h2 style="font-size: 20px; font-weight: 900; color: #0f172a; margin-top: 32px; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 3px solid #6366f1; text-transform: uppercase; letter-spacing: 1px;">${text}</h2>`;
       continue;
     }
     
     if (line.startsWith('# ')) {
       if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
       const text = line.replace(/^# /, '');
-      html += `<h1 class="text-2xl font-black text-slate-900 mb-6 pb-2">${text}</h1>`;
+      html += `<h1 style="font-size: 24px; font-weight: 900; color: #0f172a; margin-bottom: 20px;">${text}</h1>`;
       continue;
     }
     
-    // Horizontal rule
     if (line.trim() === '---') {
       if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
-      html += '<hr class="my-8 border-t-2 border-slate-200" />';
+      html += '<hr style="margin: 28px 0; border: none; border-top: 2px solid #e2e8f0;" />';
       continue;
     }
     
-    // Numbered list
     const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
     if (numberedMatch) {
       if (!inList || listType !== 'ol') {
         if (inList) html += '</ul>';
-        html += '<ol class="list-decimal list-outside ml-6 mb-6 space-y-2">';
+        html += '<ol style="list-style-type: decimal; margin-left: 24px; margin-bottom: 20px;">';
         inList = true;
         listType = 'ol';
       }
       const content = numberedMatch[2]
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-      html += `<li class="text-slate-700 leading-relaxed pl-2">${content}</li>`;
+        .replace(/\*\*(.*?)\*\*/g, '<strong style="font-weight: 600;">$1</strong>');
+      html += `<li style="color: #475569; line-height: 1.7; margin-bottom: 8px; padding-left: 8px;">${content}</li>`;
       continue;
     }
     
-    // Bullet list
     if (line.startsWith('- ')) {
       if (!inList || listType !== 'ul') {
         if (inList) html += '</ol>';
-        html += '<ul class="list-disc list-outside ml-6 mb-6 space-y-2">';
+        html += '<ul style="list-style-type: disc; margin-left: 24px; margin-bottom: 20px;">';
         inList = true;
         listType = 'ul';
       }
       const content = line.replace(/^- /, '')
-        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>');
-      html += `<li class="text-slate-700 leading-relaxed pl-2">${content}</li>`;
+        .replace(/\*\*(.*?)\*\*/g, '<strong style="font-weight: 600;">$1</strong>');
+      html += `<li style="color: #475569; line-height: 1.7; margin-bottom: 8px; padding-left: 8px;">${content}</li>`;
       continue;
     }
     
-    // Close list if we hit a non-list line
     if (inList && line.trim() !== '') {
       html += listType === 'ol' ? '</ol>' : '</ul>';
       inList = false;
       listType = null;
     }
     
-    // Empty line
     if (line.trim() === '') {
       continue;
     }
     
-    // Regular paragraph
     let paragraph = line
-      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-slate-900">$1</strong>')
+      .replace(/\*\*(.*?)\*\*/g, '<strong style="font-weight: 600; color: #0f172a;">$1</strong>')
       .replace(/\*(.*?)\*/g, '<em>$1</em>');
     
-    html += `<p class="text-slate-700 leading-relaxed mb-4">${paragraph}</p>`;
+    html += `<p style="color: #475569; line-height: 1.8; margin-bottom: 16px;">${paragraph}</p>`;
   }
   
-  // Close any open list
   if (inList) {
     html += listType === 'ol' ? '</ol>' : '</ul>';
   }
@@ -123,8 +115,9 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
   const [manualEmail, setManualEmail] = useState('');
   const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<'preview' | 'edit'>('preview');
+  
+  const reportRef = useRef<HTMLDivElement>(null);
 
-  // Convert markdown to HTML for preview
   const htmlContent = useMemo(() => markdownToHtml(content), [content]);
 
   const handleCopy = () => {
@@ -163,93 +156,88 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
     }
   };
 
-  const exportToPDF = () => {
+  const exportToPDF = async () => {
+    if (!reportRef.current) return;
+    
     setIsExporting(true);
+    
+    // Force preview mode for export
+    const wasEditMode = viewMode === 'edit';
+    if (wasEditMode) setViewMode('preview');
+    
+    // Wait for render
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
     try {
-      const doc = new jsPDF();
-      const margin = 20;
-      const pageWidth = doc.internal.pageSize.getWidth();
-      const pageHeight = doc.internal.pageSize.getHeight();
-      let yPosition = 50;
-
-      // Header
-      doc.setFillColor(30, 41, 59);
-      doc.rect(0, 0, pageWidth, 40, 'F');
-      doc.setTextColor(255, 255, 255);
-      doc.setFontSize(16);
-      doc.setFont('helvetica', 'bold');
-      doc.text(report.title.toUpperCase(), margin, 20);
-      doc.setFontSize(9);
-      doc.setFont('helvetica', 'normal');
-      doc.text(`DATUM: ${report.date} | KUNDE: ${report.customer}`, margin, 30);
-
-      // Content - clean markdown
-      const cleanContent = content
-        .replace(/^#+\s*/gm, '')
-        .replace(/\*\*/g, '')
-        .replace(/^---$/gm, '');
+      const element = reportRef.current;
       
-      doc.setTextColor(30, 41, 59);
-      doc.setFontSize(10);
-      doc.setFont('helvetica', 'normal');
+      // Create canvas from HTML
+      const canvas = await html2canvas(element, {
+        scale: 2, // Higher quality
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
       
-      const lines = doc.splitTextToSize(cleanContent, pageWidth - (margin * 2));
+      const imgData = canvas.toDataURL('image/png');
       
-      for (let i = 0; i < lines.length; i++) {
-        if (yPosition > pageHeight - 30) {
-          doc.addPage();
-          yPosition = 20;
+      // Calculate PDF dimensions
+      const pdf = new jsPDF({
+        orientation: canvas.width > canvas.height ? 'landscape' : 'portrait',
+        unit: 'mm',
+        format: 'a4'
+      });
+      
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      
+      const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight);
+      const scaledWidth = imgWidth * ratio;
+      const scaledHeight = imgHeight * ratio;
+      
+      // If content is longer than one page, split it
+      const pageHeightInPixels = (pdfHeight / ratio);
+      const totalPages = Math.ceil(imgHeight / pageHeightInPixels);
+      
+      for (let page = 0; page < totalPages; page++) {
+        if (page > 0) {
+          pdf.addPage();
         }
-        doc.text(lines[i], margin, yPosition);
-        yPosition += 5;
-      }
-
-      // Add images if present
-      if (report.images && report.images.length > 0) {
-        doc.addPage();
-        doc.setFontSize(14);
-        doc.setFont('helvetica', 'bold');
-        doc.text('BILDMATERIAL', margin, 20);
         
-        let imgY = 35;
-        let imgX = margin;
-        const imgWidth = 80;
-        const imgHeight = 60;
+        const sourceY = page * pageHeightInPixels;
+        const sourceHeight = Math.min(pageHeightInPixels, imgHeight - sourceY);
         
-        report.images.forEach((img, idx) => {
-          if (imgY + imgHeight > pageHeight - 20) {
-            doc.addPage();
-            imgY = 20;
-          }
+        // Create a temporary canvas for this page section
+        const pageCanvas = document.createElement('canvas');
+        pageCanvas.width = imgWidth;
+        pageCanvas.height = sourceHeight;
+        const ctx = pageCanvas.getContext('2d');
+        
+        if (ctx) {
+          ctx.drawImage(
+            canvas, 
+            0, sourceY, imgWidth, sourceHeight,
+            0, 0, imgWidth, sourceHeight
+          );
           
-          try {
-            doc.addImage(
-              `data:${img.mimeType};base64,${img.data}`,
-              'JPEG',
-              imgX,
-              imgY,
-              imgWidth,
-              imgHeight
-            );
-            
-            // Alternate left/right
-            if (imgX === margin) {
-              imgX = margin + imgWidth + 10;
-            } else {
-              imgX = margin;
-              imgY += imgHeight + 10;
-            }
-          } catch (e) {
-            console.error('Image export error:', e);
-          }
-        });
+          const pageImgData = pageCanvas.toDataURL('image/png');
+          const pageScaledHeight = sourceHeight * ratio;
+          
+          pdf.addImage(pageImgData, 'PNG', 0, 0, pdfWidth, pageScaledHeight);
+        }
       }
-
-      doc.save(`Bericht_${report.customer.replace(/\s+/g, '_')}_${report.date.replace(/\./g, '-')}.pdf`);
+      
+      pdf.save(`Bericht_${report.customer.replace(/\s+/g, '_')}_${report.date.replace(/\./g, '-')}.pdf`);
+      
     } catch (error) {
       console.error('PDF Export Error:', error);
-      alert('Fehler beim PDF-Export');
+      alert('Fehler beim PDF-Export. Bitte versuchen Sie es erneut.');
     } finally {
+      if (wasEditMode) setViewMode('edit');
       setIsExporting(false);
     }
   };
@@ -284,7 +272,6 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
         </div>
         
         <div className="flex items-center gap-2">
-          {/* View/Edit Toggle */}
           <div className="flex bg-slate-100 rounded-lg p-1">
             <button
               onClick={() => setViewMode('preview')}
@@ -324,28 +311,30 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       {/* Main Content - Scrollable */}
       <div className="flex-1 overflow-auto p-4 md:p-6">
         <div className="max-w-4xl mx-auto">
-          {/* Report Card */}
-          <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+          {/* Report Card - This is what gets exported to PDF */}
+          <div ref={reportRef} className="bg-white rounded-2xl shadow-lg overflow-hidden">
             {/* Report Header */}
-            <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white p-6 md:p-8">
+            <div style={{ background: 'linear-gradient(to right, #1e293b, #0f172a)' }} className="text-white p-6 md:p-8">
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="text-indigo-300 text-xs font-semibold uppercase tracking-wider mb-2">Technischer Bericht</p>
+                  <p style={{ color: '#a5b4fc' }} className="text-xs font-semibold uppercase tracking-wider mb-2">Technischer Bericht</p>
                   <h1 className="text-xl md:text-2xl font-black uppercase tracking-tight">{report.title}</h1>
                 </div>
                 <div className="text-right text-sm">
-                  <p className="text-slate-400">Datum</p>
+                  <p style={{ color: '#94a3b8' }}>Datum</p>
                   <p className="font-bold">{report.date}</p>
                 </div>
               </div>
-              <div className="mt-4 pt-4 border-t border-slate-700 flex flex-wrap gap-6 text-sm">
-                <div>
-                  <p className="text-slate-400 text-xs">Kunde/Objekt</p>
-                  <p className="font-semibold">{report.customer}</p>
-                </div>
-                <div>
-                  <p className="text-slate-400 text-xs">Status</p>
-                  <p className="font-semibold">{report.status}</p>
+              <div className="mt-4 pt-4" style={{ borderTop: '1px solid #334155' }}>
+                <div className="flex flex-wrap gap-6 text-sm">
+                  <div>
+                    <p style={{ color: '#94a3b8' }} className="text-xs">Kunde/Objekt</p>
+                    <p className="font-semibold">{report.customer}</p>
+                  </div>
+                  <div>
+                    <p style={{ color: '#94a3b8' }} className="text-xs">Status</p>
+                    <p className="font-semibold">{report.status}</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -353,10 +342,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
             {/* Report Content */}
             <div className="p-6 md:p-10">
               {viewMode === 'preview' ? (
-                <div 
-                  className="report-content"
-                  dangerouslySetInnerHTML={{ __html: htmlContent }}
-                />
+                <div dangerouslySetInnerHTML={{ __html: htmlContent }} />
               ) : (
                 <textarea
                   value={content}
@@ -370,19 +356,20 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
 
             {/* Images Section */}
             {report.images && report.images.length > 0 && (
-              <div className="border-t-2 border-slate-100 p-6 md:p-10 bg-slate-50">
-                <h3 className="text-lg font-bold text-slate-800 uppercase tracking-wide mb-6 flex items-center gap-3">
-                  <div className="p-2 bg-indigo-100 rounded-lg">
-                    <ImageIcon size={20} className="text-indigo-600" />
+              <div style={{ borderTop: '2px solid #f1f5f9', background: '#f8fafc' }} className="p-6 md:p-10">
+                <h3 className="text-lg font-bold uppercase tracking-wide mb-6 flex items-center gap-3" style={{ color: '#1e293b' }}>
+                  <div style={{ background: '#e0e7ff', padding: '8px', borderRadius: '8px' }}>
+                    <ImageIcon size={20} style={{ color: '#4f46e5' }} />
                   </div>
                   Bildmaterial
-                  <span className="text-sm font-normal text-slate-500">({report.images.length} Fotos)</span>
+                  <span className="text-sm font-normal" style={{ color: '#64748b' }}>({report.images.length} Fotos)</span>
                 </h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {report.images.map((img, idx) => (
                     <div 
                       key={idx} 
-                      className="relative aspect-[4/3] rounded-xl overflow-hidden shadow-md group cursor-pointer border-2 border-white hover:border-indigo-300 transition-all" 
+                      className="relative rounded-xl overflow-hidden shadow-md cursor-pointer"
+                      style={{ aspectRatio: '4/3', border: '2px solid white' }}
                       onClick={() => setEditingImageIndex(idx)}
                     >
                       <img 
@@ -390,9 +377,19 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
                         className="w-full h-full object-cover" 
                         alt={`Foto ${idx + 1}`} 
                       />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 flex items-end justify-between p-3 transition-all">
-                        <span className="text-white text-sm font-semibold">Foto {idx + 1}</span>
-                        <Edit3 size={18} className="text-white" />
+                      <div 
+                        style={{ 
+                          position: 'absolute', 
+                          bottom: '8px', 
+                          left: '8px', 
+                          background: 'rgba(0,0,0,0.7)', 
+                          color: 'white', 
+                          fontSize: '12px', 
+                          padding: '4px 8px', 
+                          borderRadius: '4px' 
+                        }}
+                      >
+                        Foto {idx + 1}
                       </div>
                     </div>
                   ))}
@@ -401,9 +398,9 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
             )}
 
             {/* Footer */}
-            <div className="border-t border-slate-200 p-4 bg-slate-50 text-center">
-              <p className="text-xs text-slate-400">
-                Erstellt mit <span className="font-semibold text-indigo-500">SmartReport</span> • {report.date}
+            <div style={{ borderTop: '1px solid #e2e8f0', background: '#f8fafc' }} className="p-4 text-center">
+              <p style={{ fontSize: '12px', color: '#94a3b8' }}>
+                Erstellt mit <span style={{ fontWeight: 600, color: '#6366f1' }}>SmartReport</span> • {report.date}
               </p>
             </div>
           </div>
@@ -418,7 +415,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
           className="flex items-center gap-2 px-5 py-3 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-bold text-xs uppercase tracking-wide hover:bg-slate-200 transition-all disabled:opacity-50"
         >
           {isExporting ? <Loader2 className="animate-spin" size={18} /> : <FileDown size={18} className="text-red-500" />}
-          PDF Export
+          {isExporting ? 'Wird erstellt...' : 'PDF Export'}
         </button>
         
         <button 
