@@ -13,30 +13,100 @@ interface ReportEditorProps {
   onBack: () => void;
 }
 
-// Markdown to HTML converter
+// Professional Markdown to HTML converter
 function markdownToHtml(markdown: string): string {
-  let html = markdown
-    // Headers
-    .replace(/^### (.*$)/gim, '<h3 class="text-lg font-bold text-slate-800 mt-6 mb-2">$1</h3>')
-    .replace(/^## (.*$)/gim, '<h2 class="text-xl font-bold text-slate-900 mt-8 mb-3 pb-2 border-b border-slate-200">$1</h2>')
-    .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-black text-slate-900 mb-4">$1</h1>')
-    // Bold
-    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900">$1</strong>')
-    // Italic
-    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+  // Split into lines for better processing
+  const lines = markdown.split('\n');
+  let html = '';
+  let inList = false;
+  let listType: 'ol' | 'ul' | null = null;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i];
+    
+    // Check for headers
+    if (line.startsWith('### ')) {
+      if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
+      const text = line.replace(/^### /, '');
+      html += `<h3 class="text-lg font-bold text-slate-800 mt-8 mb-3 flex items-center gap-2">
+        <span class="w-1.5 h-1.5 bg-indigo-500 rounded-full"></span>${text}
+      </h3>`;
+      continue;
+    }
+    
+    if (line.startsWith('## ')) {
+      if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
+      const text = line.replace(/^## /, '');
+      html += `<h2 class="text-xl font-black text-slate-900 mt-10 mb-4 pb-3 border-b-2 border-indigo-500 uppercase tracking-wide">${text}</h2>`;
+      continue;
+    }
+    
+    if (line.startsWith('# ')) {
+      if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
+      const text = line.replace(/^# /, '');
+      html += `<h1 class="text-2xl font-black text-slate-900 mb-6 pb-2">${text}</h1>`;
+      continue;
+    }
+    
     // Horizontal rule
-    .replace(/^---$/gim, '<hr class="my-6 border-slate-200" />')
-    // Numbered lists
-    .replace(/^\d+\.\s+(.*$)/gim, '<li class="ml-4 mb-1">$1</li>')
-    // Bullet lists
-    .replace(/^- (.*$)/gim, '<li class="ml-4 mb-1 list-disc">$1</li>')
-    // Line breaks
-    .replace(/\n\n/g, '</p><p class="mb-4">')
-    .replace(/\n/g, '<br />');
+    if (line.trim() === '---') {
+      if (inList) { html += listType === 'ol' ? '</ol>' : '</ul>'; inList = false; }
+      html += '<hr class="my-8 border-t-2 border-slate-200" />';
+      continue;
+    }
+    
+    // Numbered list
+    const numberedMatch = line.match(/^(\d+)\.\s+(.*)$/);
+    if (numberedMatch) {
+      if (!inList || listType !== 'ol') {
+        if (inList) html += '</ul>';
+        html += '<ol class="list-decimal list-outside ml-6 mb-6 space-y-2">';
+        inList = true;
+        listType = 'ol';
+      }
+      const content = numberedMatch[2]
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+      html += `<li class="text-slate-700 leading-relaxed pl-2">${content}</li>`;
+      continue;
+    }
+    
+    // Bullet list
+    if (line.startsWith('- ')) {
+      if (!inList || listType !== 'ul') {
+        if (inList) html += '</ol>';
+        html += '<ul class="list-disc list-outside ml-6 mb-6 space-y-2">';
+        inList = true;
+        listType = 'ul';
+      }
+      const content = line.replace(/^- /, '')
+        .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+      html += `<li class="text-slate-700 leading-relaxed pl-2">${content}</li>`;
+      continue;
+    }
+    
+    // Close list if we hit a non-list line
+    if (inList && line.trim() !== '') {
+      html += listType === 'ol' ? '</ol>' : '</ul>';
+      inList = false;
+      listType = null;
+    }
+    
+    // Empty line
+    if (line.trim() === '') {
+      continue;
+    }
+    
+    // Regular paragraph
+    let paragraph = line
+      .replace(/\*\*(.*?)\*\*/g, '<strong class="font-semibold text-slate-900">$1</strong>')
+      .replace(/\*(.*?)\*/g, '<em>$1</em>');
+    
+    html += `<p class="text-slate-700 leading-relaxed mb-4">${paragraph}</p>`;
+  }
   
-  // Wrap in paragraph if not already wrapped
-  if (!html.startsWith('<h') && !html.startsWith('<p')) {
-    html = '<p class="mb-4">' + html + '</p>';
+  // Close any open list
+  if (inList) {
+    html += listType === 'ol' ? '</ol>' : '</ul>';
   }
   
   return html;
@@ -62,7 +132,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       .replace(/\*\*/g, '')
       .replace(/__/g, '')
       .replace(/^#+\s*/gm, '')
-      .replace(/^---$/gm, '—————————————————')
+      .replace(/^---$/gm, '═══════════════════════════════')
       .replace(/^\d+\.\s+/gm, '• ');
     navigator.clipboard.writeText(cleanText);
     setCopied(true);
@@ -257,18 +327,34 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
           {/* Report Card */}
           <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
             {/* Report Header */}
-            <div className="bg-slate-800 text-white p-6">
-              <h1 className="text-xl md:text-2xl font-black uppercase tracking-tight">{report.title}</h1>
-              <p className="text-slate-300 text-sm mt-1">
-                Datum: {report.date} | Kunde: {report.customer}
-              </p>
+            <div className="bg-gradient-to-r from-slate-800 to-slate-900 text-white p-6 md:p-8">
+              <div className="flex items-start justify-between">
+                <div>
+                  <p className="text-indigo-300 text-xs font-semibold uppercase tracking-wider mb-2">Technischer Bericht</p>
+                  <h1 className="text-xl md:text-2xl font-black uppercase tracking-tight">{report.title}</h1>
+                </div>
+                <div className="text-right text-sm">
+                  <p className="text-slate-400">Datum</p>
+                  <p className="font-bold">{report.date}</p>
+                </div>
+              </div>
+              <div className="mt-4 pt-4 border-t border-slate-700 flex flex-wrap gap-6 text-sm">
+                <div>
+                  <p className="text-slate-400 text-xs">Kunde/Objekt</p>
+                  <p className="font-semibold">{report.customer}</p>
+                </div>
+                <div>
+                  <p className="text-slate-400 text-xs">Status</p>
+                  <p className="font-semibold">{report.status}</p>
+                </div>
+              </div>
             </div>
 
             {/* Report Content */}
-            <div className="p-6 md:p-8">
+            <div className="p-6 md:p-10">
               {viewMode === 'preview' ? (
                 <div 
-                  className="prose prose-slate max-w-none text-slate-700 leading-relaxed"
+                  className="report-content"
                   dangerouslySetInnerHTML={{ __html: htmlContent }}
                 />
               ) : (
@@ -276,7 +362,7 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
                   value={content}
                   onChange={(e) => setContent(e.target.value)}
                   disabled={isSyncing}
-                  className="w-full min-h-[400px] p-4 border border-slate-200 rounded-xl font-mono text-sm text-slate-700 leading-relaxed outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y"
+                  className="w-full min-h-[500px] p-4 border border-slate-200 rounded-xl font-mono text-sm text-slate-700 leading-relaxed outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y"
                   placeholder="Berichtsinhalt..."
                 />
               )}
@@ -284,23 +370,29 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
 
             {/* Images Section */}
             {report.images && report.images.length > 0 && (
-              <div className="border-t border-slate-100 p-6 md:p-8 bg-slate-50">
-                <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
-                  <ImageIcon size={16} /> Bildmaterial ({report.images.length} Fotos)
+              <div className="border-t-2 border-slate-100 p-6 md:p-10 bg-slate-50">
+                <h3 className="text-lg font-bold text-slate-800 uppercase tracking-wide mb-6 flex items-center gap-3">
+                  <div className="p-2 bg-indigo-100 rounded-lg">
+                    <ImageIcon size={20} className="text-indigo-600" />
+                  </div>
+                  Bildmaterial
+                  <span className="text-sm font-normal text-slate-500">({report.images.length} Fotos)</span>
                 </h3>
                 <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   {report.images.map((img, idx) => (
-                    <div key={idx} className="relative aspect-[4/3] rounded-xl overflow-hidden shadow-md group cursor-pointer" onClick={() => setEditingImageIndex(idx)}>
+                    <div 
+                      key={idx} 
+                      className="relative aspect-[4/3] rounded-xl overflow-hidden shadow-md group cursor-pointer border-2 border-white hover:border-indigo-300 transition-all" 
+                      onClick={() => setEditingImageIndex(idx)}
+                    >
                       <img 
                         src={`data:${img.mimeType};base64,${img.data}`} 
                         className="w-full h-full object-cover" 
                         alt={`Foto ${idx + 1}`} 
                       />
-                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
-                        <Edit3 size={24} className="text-white" />
-                      </div>
-                      <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
-                        Foto {idx + 1}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 flex items-end justify-between p-3 transition-all">
+                        <span className="text-white text-sm font-semibold">Foto {idx + 1}</span>
+                        <Edit3 size={18} className="text-white" />
                       </div>
                     </div>
                   ))}
@@ -309,8 +401,10 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
             )}
 
             {/* Footer */}
-            <div className="border-t border-slate-100 p-4 text-center text-xs text-slate-400">
-              Erstellt mit SmartReport • {report.date}
+            <div className="border-t border-slate-200 p-4 bg-slate-50 text-center">
+              <p className="text-xs text-slate-400">
+                Erstellt mit <span className="font-semibold text-indigo-500">SmartReport</span> • {report.date}
+              </p>
             </div>
           </div>
         </div>
