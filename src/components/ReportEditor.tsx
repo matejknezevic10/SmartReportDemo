@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Report, ReportType, User, ReportImage } from '../types';
-import { Save, ArrowLeft, Copy, Check, FileDown, FileText, Image as ImageIcon, X, Mail, Send, Loader2, CloudUpload, Sparkles, Edit3, Home, CheckCircle, AlertTriangle, MapPin, Activity } from 'lucide-react';
+import { ArrowLeft, Copy, Check, FileDown, Image as ImageIcon, Mail, Loader2, Sparkles, Edit3, CheckCircle, Eye, Edit } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import { generateProfessionalReport } from '../services/geminiService';
 import ImageEditor from './ImageEditor';
@@ -13,6 +13,35 @@ interface ReportEditorProps {
   onBack: () => void;
 }
 
+// Markdown to HTML converter
+function markdownToHtml(markdown: string): string {
+  let html = markdown
+    // Headers
+    .replace(/^### (.*$)/gim, '<h3 class="text-lg font-bold text-slate-800 mt-6 mb-2">$1</h3>')
+    .replace(/^## (.*$)/gim, '<h2 class="text-xl font-bold text-slate-900 mt-8 mb-3 pb-2 border-b border-slate-200">$1</h2>')
+    .replace(/^# (.*$)/gim, '<h1 class="text-2xl font-black text-slate-900 mb-4">$1</h1>')
+    // Bold
+    .replace(/\*\*(.*?)\*\*/g, '<strong class="font-bold text-slate-900">$1</strong>')
+    // Italic
+    .replace(/\*(.*?)\*/g, '<em>$1</em>')
+    // Horizontal rule
+    .replace(/^---$/gim, '<hr class="my-6 border-slate-200" />')
+    // Numbered lists
+    .replace(/^\d+\.\s+(.*$)/gim, '<li class="ml-4 mb-1">$1</li>')
+    // Bullet lists
+    .replace(/^- (.*$)/gim, '<li class="ml-4 mb-1 list-disc">$1</li>')
+    // Line breaks
+    .replace(/\n\n/g, '</p><p class="mb-4">')
+    .replace(/\n/g, '<br />');
+  
+  // Wrap in paragraph if not already wrapped
+  if (!html.startsWith('<h') && !html.startsWith('<p')) {
+    html = '<p class="mb-4">' + html + '</p>';
+  }
+  
+  return html;
+}
+
 const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnline, onSave, onBack }) => {
   const [content, setContent] = useState(report.content);
   const [copied, setCopied] = useState(false);
@@ -23,9 +52,18 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
   const [showEmailModal, setShowEmailModal] = useState(false);
   const [manualEmail, setManualEmail] = useState('');
   const [editingImageIndex, setEditingImageIndex] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<'preview' | 'edit'>('preview');
+
+  // Convert markdown to HTML for preview
+  const htmlContent = useMemo(() => markdownToHtml(content), [content]);
 
   const handleCopy = () => {
-    const cleanText = content.replace(/\*\*/g, '').replace(/__/g, '').replace(/^\s*#+\s*/gm, '');
+    const cleanText = content
+      .replace(/\*\*/g, '')
+      .replace(/__/g, '')
+      .replace(/^#+\s*/gm, '')
+      .replace(/^---$/gm, '—————————————————')
+      .replace(/^\d+\.\s+/gm, '• ');
     navigator.clipboard.writeText(cleanText);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
@@ -62,25 +100,85 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       const margin = 20;
       const pageWidth = doc.internal.pageSize.getWidth();
       const pageHeight = doc.internal.pageSize.getHeight();
+      let yPosition = 50;
 
       // Header
       doc.setFillColor(30, 41, 59);
       doc.rect(0, 0, pageWidth, 40, 'F');
       doc.setTextColor(255, 255, 255);
-      doc.setFontSize(18);
+      doc.setFontSize(16);
       doc.setFont('helvetica', 'bold');
-      doc.text(report.title.toUpperCase(), margin, 25);
-      doc.setFontSize(8);
-      doc.text(`DATUM: ${report.date} | KUNDE: ${report.customer}`, margin, 32);
-
-      // Content
-      doc.setTextColor(30, 41, 59);
-      doc.setFontSize(11);
+      doc.text(report.title.toUpperCase(), margin, 20);
+      doc.setFontSize(9);
       doc.setFont('helvetica', 'normal');
-      const splitContent = doc.splitTextToSize(content, pageWidth - (margin * 2));
-      doc.text(splitContent, margin, 55);
+      doc.text(`DATUM: ${report.date} | KUNDE: ${report.customer}`, margin, 30);
 
-      doc.save(`Bericht_${report.customer.replace(/\s+/g, '_')}.pdf`);
+      // Content - clean markdown
+      const cleanContent = content
+        .replace(/^#+\s*/gm, '')
+        .replace(/\*\*/g, '')
+        .replace(/^---$/gm, '');
+      
+      doc.setTextColor(30, 41, 59);
+      doc.setFontSize(10);
+      doc.setFont('helvetica', 'normal');
+      
+      const lines = doc.splitTextToSize(cleanContent, pageWidth - (margin * 2));
+      
+      for (let i = 0; i < lines.length; i++) {
+        if (yPosition > pageHeight - 30) {
+          doc.addPage();
+          yPosition = 20;
+        }
+        doc.text(lines[i], margin, yPosition);
+        yPosition += 5;
+      }
+
+      // Add images if present
+      if (report.images && report.images.length > 0) {
+        doc.addPage();
+        doc.setFontSize(14);
+        doc.setFont('helvetica', 'bold');
+        doc.text('BILDMATERIAL', margin, 20);
+        
+        let imgY = 35;
+        let imgX = margin;
+        const imgWidth = 80;
+        const imgHeight = 60;
+        
+        report.images.forEach((img, idx) => {
+          if (imgY + imgHeight > pageHeight - 20) {
+            doc.addPage();
+            imgY = 20;
+          }
+          
+          try {
+            doc.addImage(
+              `data:${img.mimeType};base64,${img.data}`,
+              'JPEG',
+              imgX,
+              imgY,
+              imgWidth,
+              imgHeight
+            );
+            
+            // Alternate left/right
+            if (imgX === margin) {
+              imgX = margin + imgWidth + 10;
+            } else {
+              imgX = margin;
+              imgY += imgHeight + 10;
+            }
+          } catch (e) {
+            console.error('Image export error:', e);
+          }
+        });
+      }
+
+      doc.save(`Bericht_${report.customer.replace(/\s+/g, '_')}_${report.date.replace(/\./g, '-')}.pdf`);
+    } catch (error) {
+      console.error('PDF Export Error:', error);
+      alert('Fehler beim PDF-Export');
     } finally {
       setIsExporting(false);
     }
@@ -100,74 +198,141 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
   };
 
   return (
-    <div className="fixed inset-0 bg-white z-50 flex flex-col font-sans">
+    <div className="fixed inset-0 bg-slate-100 z-50 flex flex-col font-sans">
       {/* Header */}
-      <div className="border-b px-6 py-4 flex items-center justify-between bg-white shadow-sm shrink-0">
-        <div className="flex items-center gap-4">
-          <button onClick={onBack} className="p-2.5 hover:bg-slate-100 rounded-2xl transition-all text-slate-600"><ArrowLeft size={22} /></button>
-          <div>
-            <h2 className="font-black uppercase tracking-tight text-slate-900">{report.title}</h2>
-            <p className="text-[10px] text-indigo-500 font-bold uppercase tracking-widest leading-none mt-1">Status: {report.status}</p>
+      <div className="bg-white border-b px-4 md:px-6 py-3 flex items-center justify-between shadow-sm flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <button onClick={onBack} className="p-2 hover:bg-slate-100 rounded-xl transition-all text-slate-600">
+            <ArrowLeft size={20} />
+          </button>
+          <div className="hidden sm:block">
+            <h2 className="font-bold text-slate-900 text-sm">{report.title}</h2>
+            <p className="text-[10px] text-indigo-500 font-semibold uppercase tracking-wider">
+              {report.status} • {report.date}
+            </p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        
+        <div className="flex items-center gap-2">
+          {/* View/Edit Toggle */}
+          <div className="flex bg-slate-100 rounded-lg p-1">
+            <button
+              onClick={() => setViewMode('preview')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                viewMode === 'preview' ? 'bg-white shadow text-slate-900' : 'text-slate-500'
+              }`}
+            >
+              <Eye size={14} className="inline mr-1" /> Vorschau
+            </button>
+            <button
+              onClick={() => setViewMode('edit')}
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold transition-all ${
+                viewMode === 'edit' ? 'bg-white shadow text-slate-900' : 'text-slate-500'
+              }`}
+            >
+              <Edit size={14} className="inline mr-1" /> Bearbeiten
+            </button>
+          </div>
+
           {report.isOfflineDraft && isOnline && (
-            <button onClick={handleSync} disabled={isSyncing} className="bg-indigo-600 text-white px-6 py-2 rounded-2xl text-xs font-black tracking-widest uppercase flex items-center gap-2 hover:bg-indigo-700 disabled:opacity-50 transition-all">
-              {isSyncing ? <Loader2 className="animate-spin" size={16} /> : <Sparkles size={16} />} Generieren
+            <button onClick={handleSync} disabled={isSyncing} className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-2 hover:bg-indigo-700 disabled:opacity-50">
+              {isSyncing ? <Loader2 className="animate-spin" size={14} /> : <Sparkles size={14} />}
+              <span className="hidden sm:inline">Generieren</span>
             </button>
           )}
-          <button onClick={handleCopy} className="p-3 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-2xl transition-colors">
-            {copied ? <Check size={22} /> : <Copy size={22} />}
+          
+          <button onClick={handleCopy} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition-colors">
+            {copied ? <Check size={18} /> : <Copy size={18} />}
           </button>
-          <button onClick={() => onSave({ ...report, content })} className="bg-slate-900 text-white px-6 py-2 rounded-2xl text-xs font-black tracking-widest uppercase hover:bg-black transition-colors">
+          
+          <button onClick={() => onSave({ ...report, content })} className="bg-slate-900 text-white px-4 py-2 rounded-xl text-xs font-bold hover:bg-black transition-colors">
             Sichern
           </button>
         </div>
       </div>
 
-      {/* Main Content Area - Fixed height calculation */}
-      <div className="flex-1 flex flex-col md:flex-row bg-slate-50 overflow-hidden">
-        {/* Report Text Area */}
-        <div className="flex-1 p-6 overflow-hidden flex flex-col">
-          <textarea
-            value={content}
-            onChange={(e) => setContent(e.target.value)}
-            disabled={isSyncing}
-            className="flex-1 w-full bg-white rounded-[2rem] shadow-xl p-8 md:p-12 text-slate-700 font-medium text-base md:text-lg leading-relaxed border border-slate-100 outline-none focus:ring-4 focus:ring-indigo-500/5 transition-all resize-none overflow-y-auto"
-            placeholder="Berichtsinhalt wird hier angezeigt..."
-          />
-        </div>
+      {/* Main Content - Scrollable */}
+      <div className="flex-1 overflow-auto p-4 md:p-6">
+        <div className="max-w-4xl mx-auto">
+          {/* Report Card */}
+          <div className="bg-white rounded-2xl shadow-lg overflow-hidden">
+            {/* Report Header */}
+            <div className="bg-slate-800 text-white p-6">
+              <h1 className="text-xl md:text-2xl font-black uppercase tracking-tight">{report.title}</h1>
+              <p className="text-slate-300 text-sm mt-1">
+                Datum: {report.date} | Kunde: {report.customer}
+              </p>
+            </div>
 
-        {/* Images Sidebar */}
-        {report.images && report.images.length > 0 && (
-          <div className="w-full md:w-80 bg-white border-l p-8 overflow-y-auto shrink-0 max-h-[300px] md:max-h-none">
-            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-8 flex items-center gap-2">
-              <ImageIcon size={16} /> Bildmaterial ({report.images.length})
-            </h4>
-            <div className="space-y-4">
-              {report.images.map((img, idx) => (
-                <div key={idx} className="relative aspect-[4/3] rounded-3xl overflow-hidden border-2 border-slate-50 shadow-sm group">
-                  <img src={`data:${img.mimeType};base64,${img.data}`} className="w-full h-full object-cover" alt={`Beweis ${idx}`} />
-                  <div className="absolute inset-0 bg-slate-900/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
-                    <button onClick={() => setEditingImageIndex(idx)} className="p-3 bg-white text-indigo-600 rounded-2xl shadow-xl hover:scale-110 active:scale-95"><Edit3 size={24} /></button>
-                  </div>
+            {/* Report Content */}
+            <div className="p-6 md:p-8">
+              {viewMode === 'preview' ? (
+                <div 
+                  className="prose prose-slate max-w-none text-slate-700 leading-relaxed"
+                  dangerouslySetInnerHTML={{ __html: htmlContent }}
+                />
+              ) : (
+                <textarea
+                  value={content}
+                  onChange={(e) => setContent(e.target.value)}
+                  disabled={isSyncing}
+                  className="w-full min-h-[400px] p-4 border border-slate-200 rounded-xl font-mono text-sm text-slate-700 leading-relaxed outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-y"
+                  placeholder="Berichtsinhalt..."
+                />
+              )}
+            </div>
+
+            {/* Images Section */}
+            {report.images && report.images.length > 0 && (
+              <div className="border-t border-slate-100 p-6 md:p-8 bg-slate-50">
+                <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+                  <ImageIcon size={16} /> Bildmaterial ({report.images.length} Fotos)
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                  {report.images.map((img, idx) => (
+                    <div key={idx} className="relative aspect-[4/3] rounded-xl overflow-hidden shadow-md group cursor-pointer" onClick={() => setEditingImageIndex(idx)}>
+                      <img 
+                        src={`data:${img.mimeType};base64,${img.data}`} 
+                        className="w-full h-full object-cover" 
+                        alt={`Foto ${idx + 1}`} 
+                      />
+                      <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all">
+                        <Edit3 size={24} className="text-white" />
+                      </div>
+                      <div className="absolute bottom-2 left-2 bg-black/60 text-white text-xs px-2 py-1 rounded">
+                        Foto {idx + 1}
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              ))}
+              </div>
+            )}
+
+            {/* Footer */}
+            <div className="border-t border-slate-100 p-4 text-center text-xs text-slate-400">
+              Erstellt mit SmartReport • {report.date}
             </div>
           </div>
-        )}
+        </div>
       </div>
 
-      {/* Footer */}
-      <div className="p-6 md:p-8 border-t bg-white flex flex-col sm:flex-row justify-between items-center gap-4 md:gap-8 shadow-2xl shrink-0">
-        <div className="flex items-center gap-3">
-          <button onClick={exportToPDF} disabled={isExporting} className="flex items-center gap-3 px-6 md:px-8 py-4 bg-slate-50 border border-slate-200 text-slate-700 rounded-3xl font-black text-xs uppercase tracking-widest hover:border-indigo-600 transition-all active:scale-95 shadow-sm">
-            <FileDown size={20} className="text-red-500" /> PDF Export
-          </button>
-        </div>
+      {/* Action Bar */}
+      <div className="bg-white border-t p-4 flex justify-between items-center gap-4 flex-shrink-0 shadow-lg">
+        <button 
+          onClick={exportToPDF} 
+          disabled={isExporting} 
+          className="flex items-center gap-2 px-5 py-3 bg-slate-100 border border-slate-200 text-slate-700 rounded-xl font-bold text-xs uppercase tracking-wide hover:bg-slate-200 transition-all disabled:opacity-50"
+        >
+          {isExporting ? <Loader2 className="animate-spin" size={18} /> : <FileDown size={18} className="text-red-500" />}
+          PDF Export
+        </button>
         
-        <button onClick={() => setShowEmailModal(true)} disabled={!isOnline} className="w-full sm:w-auto flex items-center justify-center gap-3 px-10 md:px-16 py-5 bg-indigo-600 text-white rounded-3xl font-black uppercase tracking-widest shadow-2xl shadow-indigo-200 hover:bg-indigo-700 transition-all active:scale-95">
-          <Mail size={22} /> Versand einleiten
+        <button 
+          onClick={() => setShowEmailModal(true)} 
+          disabled={!isOnline} 
+          className="flex items-center gap-2 px-8 py-3 bg-indigo-600 text-white rounded-xl font-bold text-xs uppercase tracking-wide shadow-lg hover:bg-indigo-700 transition-all disabled:opacity-50"
+        >
+          <Mail size={18} /> Versenden
         </button>
       </div>
 
@@ -188,36 +353,44 @@ const ReportEditor: React.FC<ReportEditorProps> = ({ report, currentUser, isOnli
       {/* Email Modal */}
       {showEmailModal && (
         <div className="fixed inset-0 bg-slate-900/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-md rounded-[3rem] shadow-2xl overflow-hidden p-10 text-center animate-in zoom-in duration-300">
-             {isSending ? (
-                <div className="py-6">
-                  <Loader2 className="animate-spin mx-auto text-indigo-600 mb-4" size={48} />
-                  <p className="font-black text-slate-400 uppercase tracking-widest text-xs">Übertragung läuft...</p>
+          <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl p-8 text-center">
+            {isSending ? (
+              <div className="py-8">
+                <Loader2 className="animate-spin mx-auto text-indigo-600 mb-4" size={48} />
+                <p className="font-bold text-slate-400 uppercase tracking-wide text-sm">Wird gesendet...</p>
+              </div>
+            ) : sendSuccess ? (
+              <div className="py-8">
+                <CheckCircle className="mx-auto text-green-500 mb-4" size={48} />
+                <h3 className="text-xl font-black text-slate-900">Versendet!</h3>
+              </div>
+            ) : (
+              <>
+                <Mail className="mx-auto text-indigo-600 mb-4" size={40} />
+                <h3 className="text-lg font-black text-slate-900 uppercase mb-6">Bericht versenden</h3>
+                <div className="space-y-4">
+                  <input 
+                    type="email" 
+                    placeholder="E-Mail Adresse..." 
+                    className="w-full p-4 border border-slate-200 rounded-xl focus:border-indigo-600 outline-none text-center font-medium" 
+                    value={manualEmail} 
+                    onChange={(e) => setManualEmail(e.target.value)} 
+                  />
+                  <button 
+                    onClick={() => simulateEmailSend(manualEmail)} 
+                    className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold uppercase tracking-wide hover:bg-indigo-700 transition-all"
+                  >
+                    Senden
+                  </button>
+                  <button 
+                    onClick={() => setShowEmailModal(false)} 
+                    className="w-full py-2 text-slate-400 font-medium text-sm"
+                  >
+                    Abbrechen
+                  </button>
                 </div>
-              ) : sendSuccess ? (
-                <div className="py-6">
-                  <CheckCircle className="mx-auto text-green-500 mb-4" size={48} />
-                  <h3 className="text-xl font-black text-slate-900 uppercase">Versendet!</h3>
-                </div>
-              ) : (
-                <>
-                  <Mail className="mx-auto text-indigo-600 mb-4" size={48} />
-                  <h3 className="text-xl font-black text-slate-900 uppercase mb-6">Empfänger</h3>
-                  <div className="space-y-4">
-                    <input 
-                      type="email" 
-                      placeholder="E-Mail Adresse..." 
-                      className="w-full p-4 border border-slate-200 rounded-2xl focus:border-indigo-600 outline-none text-center font-bold" 
-                      value={manualEmail} 
-                      onChange={(e) => setManualEmail(e.target.value)} 
-                    />
-                    <button onClick={() => simulateEmailSend(manualEmail)} className="w-full py-4 bg-indigo-600 text-white rounded-2xl font-black uppercase tracking-widest transition-all active:scale-95 shadow-lg">
-                      Bericht senden
-                    </button>
-                    <button onClick={() => setShowEmailModal(false)} className="w-full py-2 text-slate-400 font-bold text-xs uppercase tracking-widest">Abbrechen</button>
-                  </div>
-                </>
-              )}
+              </>
+            )}
           </div>
         </div>
       )}
