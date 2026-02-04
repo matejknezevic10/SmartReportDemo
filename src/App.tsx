@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Search, Filter, Settings, FileText, LayoutDashboard, History, Loader2, Camera, Image as ImageIcon, X, BookOpen, ChevronDown, AlertTriangle, CheckCircle, Briefcase, BarChart3, Users, LogOut, User as UserIcon, Mail, Mic, MicOff, CloudOff, CloudUpload, Wifi, Edit3, Home, Sparkles, Database, Building2 } from 'lucide-react';
+import { Plus, Search, Filter, Settings, FileText, LayoutDashboard, History, Loader2, Camera, Image as ImageIcon, X, BookOpen, ChevronDown, AlertTriangle, CheckCircle, Briefcase, BarChart3, Users, LogOut, User as UserIcon, Mail, Mic, MicOff, CloudOff, CloudUpload, Wifi, Edit3, Home, Sparkles, Database, Building2, PenTool } from 'lucide-react';
 import { Report, ReportType, GenerationInput, Template, User, UserRole, ReportImage, Company } from './types';
 import { generateProfessionalReport } from './services/geminiService';
 import ReportCard from './components/ReportCard';
@@ -8,6 +8,7 @@ import ReportEditor from './components/ReportEditor';
 import BusinessDashboard from './components/BusinessDashboard';
 import ImageEditor from './components/ImageEditor';
 import Login from './components/Login';
+import SketchPad from './components/SketchPad';
 
 const App: React.FC = () => {
   // --- SaaS & SESSION STATE ---
@@ -29,6 +30,7 @@ const App: React.FC = () => {
   const [isRecording, setIsRecording] = useState(false);
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [editingImageIndexForNew, setEditingImageIndexForNew] = useState<number | null>(null);
+  const [showSketchPad, setShowSketchPad] = useState(false);
   
   const fileInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<any>(null);
@@ -142,6 +144,20 @@ const App: React.FC = () => {
     setCurrentCompany(null);
     localStorage.removeItem('saas_session');
     setActiveTab('reports');
+  };
+
+  const handleSketchSave = (imageData: string) => {
+    // Convert data URL to base64 and add as image
+    const base64Data = imageData.split(',')[1];
+    const newImage: ReportImage = {
+      data: base64Data,
+      mimeType: 'image/png'
+    };
+    setFormInput(prev => ({
+      ...prev,
+      images: [...prev.images, newImage]
+    }));
+    setShowSketchPad(false);
   };
 
   const handleCreateReport = async () => {
@@ -330,6 +346,7 @@ const App: React.FC = () => {
                   </button>
                 </div>
 
+                {/* Images and Sketch Grid */}
                 <div className="grid grid-cols-4 gap-3">
                     {formInput.images.map((img, idx) => (
                       <div key={idx} className="relative aspect-square rounded-2xl overflow-hidden shadow-sm group">
@@ -350,11 +367,28 @@ const App: React.FC = () => {
                         </div>
                       </div>
                     ))}
-                    <button onClick={() => fileInputRef.current?.click()} className="aspect-square flex flex-col items-center justify-center bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 hover:text-indigo-600"><Camera size={24} /></button>
+                    
+                    {/* Camera Button */}
+                    <button 
+                      onClick={() => fileInputRef.current?.click()} 
+                      className="aspect-square flex flex-col items-center justify-center bg-slate-50 border-2 border-dashed border-slate-200 rounded-2xl text-slate-400 hover:text-indigo-600 hover:border-indigo-300 transition-all"
+                    >
+                      <Camera size={24} />
+                      <span className="text-[10px] mt-1 font-bold">Foto</span>
+                    </button>
+                    
+                    {/* Sketch/Floor Plan Button */}
+                    <button 
+                      onClick={() => setShowSketchPad(true)} 
+                      className="aspect-square flex flex-col items-center justify-center bg-indigo-50 border-2 border-dashed border-indigo-200 rounded-2xl text-indigo-400 hover:text-indigo-600 hover:border-indigo-400 hover:bg-indigo-100 transition-all"
+                    >
+                      <PenTool size={24} />
+                      <span className="text-[10px] mt-1 font-bold">Grundriss</span>
+                    </button>
+                    
                     <input type="file" ref={fileInputRef} multiple accept="image/*" onChange={(e) => {
                        const files = e.target.files;
                        if (files) {
-                         // Fixed: Explicitly cast 'file' to 'File' to resolve TypeScript 'unknown' type errors.
                          Array.from(files).forEach((file: File) => {
                            const reader = new FileReader();
                            reader.onloadend = () => {
@@ -375,6 +409,14 @@ const App: React.FC = () => {
             </div>
           </div>
         </div>
+      )}
+
+      {/* SketchPad Modal */}
+      {showSketchPad && (
+        <SketchPad 
+          onSave={handleSketchSave}
+          onClose={() => setShowSketchPad(false)}
+        />
       )}
 
       {editingImageIndexForNew !== null && (
